@@ -1,0 +1,75 @@
+====
+    COPYRIGHT Ericsson 2022
+
+
+
+    The copyright to the computer program(s) herein is the property of
+
+    Ericsson Inc. The programs may be used and/or copied only with written
+
+    permission from Ericsson Inc. or in accordance with the terms and
+
+    conditions stipulated in the agreement/contract under which the
+
+    program(s) have been supplied.
+====
+
+
+** Please be patient while the chart is being deployed **
+
+Credentials:
+
+    echo "Username      : $(kubectl get secret --namespace {{ .Release.Namespace }} {{ template "eric-eo-evnfm-mb.name" . }} -o jsonpath="{.data.rabbitmq-username}" | base64 --decode)"
+    echo "Password      : $(kubectl get secret --namespace {{ .Release.Namespace }} {{ template "eric-eo-evnfm-mb.name" . }} -o jsonpath="{.data.rabbitmq-password}" | base64 --decode)"
+    echo "ErLang Cookie : $(kubectl get secret --namespace {{ .Release.Namespace }} {{ template "eric-eo-evnfm-mb.name" . }} -o jsonpath="{.data.rabbitmq-erlang-cookie}" | base64 --decode)"
+
+RabbitMQ can be accessed within the cluster on port {{ .Values.service.nodePort }} at {{ template "eric-eo-evnfm-mb.name" . }}.{{ .Release.Namespace }}.svc.cluster.local
+
+To access for outside the cluster, perform the following steps:
+
+{{- if contains "NodePort" .Values.service.type }}
+
+Obtain the NodePort IP and ports:
+
+    export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+    export NODE_PORT_AMQP=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[1].nodePort}" services {{ template "eric-eo-evnfm-mb.name" . }})
+    export NODE_PORT_STATS=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[3].nodePort}" services {{ template "eric-eo-evnfm-mb.name" . }})
+
+To Access the RabbitMQ AMQP port:
+
+    echo "URL : amqp://$NODE_IP:$NODE_PORT_AMQP/"
+
+To Access the RabbitMQ Management interface:
+
+    echo "URL : http://$NODE_IP:$NODE_PORT_STATS/"
+
+{{- else if contains "LoadBalancer" .Values.service.type }}
+
+Obtain the LoadBalancer IP:
+
+NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+      Watch the status with: 'kubectl get svc --namespace {{ .Release.Namespace }} -w {{ template "eric-eo-evnfm-mb.name" . }}'
+
+    export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ template "eric-eo-evnfm-mb.name" . }} --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+
+To Access the RabbitMQ AMQP port:
+
+    echo "URL : amqp://$SERVICE_IP:{{ .Values.service.port }}/"
+
+To Access the RabbitMQ Management interface:
+
+    echo "URL : http://$SERVICE_IP:{{ .Values.service.managerPort }}/"
+
+{{- else if contains "ClusterIP"  .Values.service.type }}
+
+To Access the RabbitMQ AMQP port:
+
+    kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ template "eric-eo-evnfm-mb.name" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+    echo "URL : amqp://127.0.0.1:{{ .Values.service.port }}/"
+
+To Access the RabbitMQ Management interface:
+
+    kubectl port-forward --namespace {{ .Release.Namespace }} svc/{{ template "eric-eo-evnfm-mb.name" . }} {{ .Values.service.managerPort }}:{{ .Values.service.managerPort }}
+    echo "URL : http://127.0.0.1:{{ .Values.service.managerPort }}/"
+
+{{- end }}

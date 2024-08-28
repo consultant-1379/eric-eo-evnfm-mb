@@ -1,0 +1,340 @@
+#
+# COPYRIGHT Ericsson 2022
+#
+#
+#
+# The copyright to the computer program(s) herein is the property of
+#
+# Ericsson Inc. The programs may be used and/or copied only with written
+#
+# permission from Ericsson Inc. or in accordance with the terms and
+#
+# conditions stipulated in the agreement/contract under which the
+#
+# program(s) have been supplied.
+#
+
+{{/*
+Stateful set descriptor
+*/}}
+{{/*
+Values for probes
+*/}}
+{{- $probesValue := fromJson (include "eric-eo-evnfm-mb.probes" .) -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ template "eric-eo-evnfm-mb.name" . }}
+  labels: {{- include "eric-eo-evnfm-mb.labels.extended-defaults" . | nindent 4 }}
+  annotations:
+  {{- include "eric-eo-evnfm-mb.annotations" .| nindent 4 }}
+spec:
+  serviceName: {{ template "eric-eo-evnfm-mb.name" . }}-headless
+  podManagementPolicy: {{ .Values.podManagementPolicy }}
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ template "eric-eo-evnfm-mb.name" . }}
+  template:
+    metadata:
+      annotations:
+      {{- include "eric-eo-evnfm-mb.annotations" .| nindent 8 }}
+      labels:
+        app: {{ template "eric-eo-evnfm-mb.name" . }}
+        release: {{ .Release.Name }}
+      {{- include "eric-eo-evnfm-mb.kubernetes-io-info" .| nindent 8 }}
+        logger-communication-type: direct
+    spec:
+      automountServiceAccountToken: false
+      {{- if eq .Values.affinity.podAntiAffinity "hard" }}
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - {{ template "eric-eo-evnfm-mb.name" . }}
+              topologyKey: "kubernetes.io/hostname"
+      {{- else if eq .Values.affinity.podAntiAffinity  "soft" }}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                  operator: In
+                  values:
+                    - {{ template "eric-eo-evnfm-mb.name" . }}
+                topologyKey: "kubernetes.io/hostname"
+      {{- end }}
+      {{- if .Values.schedulerName }}
+      schedulerName: "{{ .Values.schedulerName }}"
+      {{- end }}
+      {{- if include "eric-eo-evnfm-mb.pullSecrets" . }}
+      imagePullSecrets:
+        - name: {{ template "eric-eo-evnfm-mb.pullSecrets" . }}
+      {{- end }}
+      serviceAccountName: {{ template "eric-eo-evnfm-mb.name" . }}
+      {{- if include "eric-eo-evnfm-mb.podPriority" . }}
+      priorityClassName: {{- include "eric-eo-evnfm-mb.podPriority" . | indent 2 }}
+      {{- end }}
+      {{- if .Values.nodeSelector }}
+      nodeSelector: {{- include "eric-eo-evnfm-mb.nodeSelector" . | nindent 8 }}
+      {{- else if .Values.global.nodeSelector }}
+      nodeSelector:  {{- include "eric-eo-evnfm-mb.nodeSelector" . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.tolerations }}
+      tolerations:
+{{ include "eric-eo-evnfm-mb.tolerations.messagebus" . | indent 8 }}
+      {{- end }}
+      {{- if .Values.terminationGracePeriodSeconds }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds.messagebus | int }}
+      {{- end }}
+      {{- if and .Values.volumePermissions.enabled .Values.persistence.persistentVolumeClaim.enabled .Values.securityContext.enabled }}
+      initContainers:
+      - name: volume-permissions
+        image: {{ template "eric-eo-evnfm-mb.volumePermissionsImagePath" . }}
+        imagePullPolicy: {{ template "eric-eo-evnfm-mb.sles.imagePullPolicy" . }}
+        command: ["/bin/chown", "-R", "{{ .Values.securityContext.runAsUser }}:{{ include "eric-eo-evnfm-mb.fsGroup.coordinated" . }}", "{{ .Values.persistence.persistentVolumeClaim.path }}"]
+        securityContext:
+          allowPrivilegeEscalation: true
+          runAsNonRoot: false
+          runAsUser: 0
+        resources:
+{{ toYaml .Values.resources.volumePermissions | indent 10 }}
+        volumeMounts:
+        - name: data
+          mountPath: "{{ .Values.persistence.persistentVolumeClaim.path }}"
+      {{- end }}
+      containers:
+{{- if has "stream" .Values.log.outputs }}
+  {{- $logshipperImageDict := dict "logshipperSidecarImage" ((((.Values).global).logShipper).config).image -}}
+  {{- include "eric-log-shipper-sidecar.log-shipper-sidecar-container" (mergeOverwrite . $logshipperImageDict ) | indent 6 }}
+{{- end }}
+      - name: {{ .Chart.Name }}
+        image: {{ template "eric-eo-evnfm-mb.mainImagePath" . }}
+        imagePullPolicy: {{ template "eric-eo-evnfm-mb.imagePullPolicy" . }}
+        securityContext:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
+          privileged: false
+          runAsNonRoot: true
+          runAsUser: {{ .Values.securityContext.runAsUser }}
+          runAsGroup: {{ include "eric-eo-evnfm-mb.fsGroup.coordinated" . }}
+          capabilities:
+            drop:
+              - all
+        resources:
+{{ toYaml .Values.resources.rabbitmq | indent 10 }}
+        volumeMounts:
+          - name: var-log-data
+            mountPath: /var/log
+            readOnly: false
+          - name: rabbitmq-data
+            mountPath: /opt/rabbitmq/etc/rabbitmq
+            readOnly: false
+          - name: rabbitmq-cache
+            mountPath: /opt/rabbitmq/.rabbitmq
+            readOnly: false
+          - name: rabbitmq-base
+            mountPath: /var/lib/rabbitmq
+            readOnly: false
+          {{- if has "stream" .Values.log.outputs }}
+            {{- include "eric-log-shipper-sidecar.log-shipper-sidecar-mounts" . | indent 10 }}
+          {{- end }}
+          - name: config-volume
+            mountPath: /opt/rabbitmq/conf
+          - name: config-erl
+            mountPath: /etc/rabbitmq
+          - name: data
+            mountPath: "{{ .Values.persistence.persistentVolumeClaim.path }}"
+          {{- if .Values.rabbitmq.loadDefinition.enabled }}
+          - name: load-definition-volume
+            mountPath: /app
+            readOnly: true
+          {{- end }}
+        ports:
+        - name: epmd
+          containerPort: 4369
+        - name: amqp
+          containerPort: {{ .Values.service.port }}
+        - name: dist
+          containerPort: {{ .Values.service.distPort }}
+        - name: stats
+          containerPort: {{ .Values.service.managerPort }}
+        livenessProbe:
+          exec:
+            command:
+              - sh
+              - -c
+              - rabbitmq-api-check "http://$RABBITMQ_USERNAME:$RABBITMQ_PASSWORD@127.0.0.1:{{ .Values.service.managerPort }}/api/healthchecks/node" '{"status":"ok"}'
+          initialDelaySeconds: {{ $probesValue.messagebus.livenessProbe.initialDelaySeconds }}
+          timeoutSeconds: {{ $probesValue.messagebus.livenessProbe.timeoutSeconds }}
+          periodSeconds: {{ $probesValue.messagebus.livenessProbe.periodSeconds }}
+          failureThreshold: {{ $probesValue.messagebus.livenessProbe.failureThreshold }}
+          successThreshold: {{ $probesValue.messagebus.livenessProbe.successThreshold }}
+        readinessProbe:
+          exec:
+            command:
+              - sh
+              - -c
+              - rabbitmq-health-check "http://$RABBITMQ_USERNAME:$RABBITMQ_PASSWORD@127.0.0.1:{{ .Values.service.managerPort }}/api/healthchecks/node" '{"status":"ok"}'
+          initialDelaySeconds: {{ $probesValue.messagebus.readinessProbe.initialDelaySeconds }}
+          timeoutSeconds: {{ $probesValue.messagebus.readinessProbe.timeoutSeconds }}
+          periodSeconds: {{ $probesValue.messagebus.readinessProbe.periodSeconds }}
+          failureThreshold: {{ $probesValue.messagebus.readinessProbe.failureThreshold }}
+          successThreshold: {{ $probesValue.messagebus.readinessProbe.successThreshold }}
+        env:
+          {{- if .Values.rabbitmq.setUlimitNofiles }}
+          - name: TO_SET_RABBITMQ_ULIMIT_NOFILES
+            value: 'true'
+          {{- end }}
+          {{- if .Values.persistence.persistentVolumeClaim.enabled }}
+          - name: PERSISTENCE_ENABLED
+            value: 'true'
+          - name: PERSISTENCE_PATH
+            value: {{ .Values.persistence.persistentVolumeClaim.path }}
+          {{- end }}
+          {{- if .Values.forceBoot.enabled }}
+          - name: FORCE_BOOT_ENABLED
+            value: 'true'
+          {{- end }}
+          - name: MY_POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          - name: MY_POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: MY_POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
+          - name: K8S_SERVICE_NAME
+            value: "{{ template "eric-eo-evnfm-mb.name" . }}-headless"
+          - name: K8S_ADDRESS_TYPE
+            value: {{ .Values.rabbitmq.clustering.address_type }}
+          {{- if (eq "hostname" .Values.rabbitmq.clustering.address_type) }}
+          - name: RABBITMQ_NODENAME
+            value: "rabbit@$(MY_POD_NAME).$(K8S_SERVICE_NAME).$(MY_POD_NAMESPACE).svc.{{ .Values.rabbitmq.clustering.k8s_domain }}"
+          - name: K8S_HOSTNAME_SUFFIX
+            value: ".$(K8S_SERVICE_NAME).$(MY_POD_NAMESPACE).svc.{{ .Values.rabbitmq.clustering.k8s_domain }}"
+          {{- else }}
+          - name: RABBITMQ_NODENAME
+            {{- if .Values.rabbitmq.rabbitmqClusterNodeName }}
+            value: {{ .Values.rabbitmq.rabbitmqClusterNodeName | quote }}
+            {{- else }}
+            value: "rabbit@$(MY_POD_NAME)"
+            {{- end }}
+          {{- end }}
+          - name: RABBITMQ_LOGS
+            value: {{ .Values.rabbitmq.logs | quote }}
+          - name: RABBITMQ_ULIMIT_NOFILES
+            value: {{ .Values.rabbitmq.ulimitNofiles | quote }}
+          {{- if and .Values.global.support.ipv6.enabled .Values.rabbitmq.maxAvailableSchedulers }}
+          - name: RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS
+            value: {{ printf "-kernel inetrc '/etc/rabbitmq/erl_inetrc' -proto_dist inet6_tcp +S %s:%s" (toString .Values.rabbitmq.maxAvailableSchedulers) (toString .Values.rabbitmq.onlineSchedulers) -}}
+          {{- else if .Values.rabbitmq.maxAvailableSchedulers }}
+          - name: RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS
+            value: {{ printf "+S %s:%s" (toString .Values.rabbitmq.maxAvailableSchedulers) (toString .Values.rabbitmq.onlineSchedulers) -}}
+          {{- else if .Values.global.support.ipv6.enabled }}
+          - name: RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS
+            value: -kernel inetrc '/etc/rabbitmq/erl_inetrc' -proto_dist inet6_tcp
+          {{- end }}
+          {{- if .Values.global.support.ipv6.enabled }}
+          - name: RABBITMQ_CTL_ERL_ARGS
+            value: -proto_dist inet6_tcp
+          {{- end }}
+          - name: RABBITMQ_USE_LONGNAME
+            value: "true"
+          - name: RABBITMQ_ERL_COOKIE
+            valueFrom:
+              secretKeyRef:
+                name: {{ template "eric-eo-evnfm-mb.secretErlangName" . }}
+                key: rabbitmq-erlang-cookie
+          - name: RABBITMQ_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: {{ template "eric-eo-evnfm-mb.rmqSecretName" . }}
+                key: {{ .Values.credentials.keyForUserId }}
+          - name: RABBITMQ_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ template "eric-eo-evnfm-mb.rmqSecretName" . }}
+                key: {{ .Values.credentials.keyForUserPw }}
+          - name: IO_THREAD_POOL_SIZE
+            value: {{ .Values.rabbitmq.ioThreadPoolSize | quote }}
+          {{- range $key, $value := .Values.rabbitmq.env }}
+          - name: {{ $key }}
+            value: {{ $value | quote }}
+          {{- end }}
+      {{- if .Values.securityContext.enabled }}
+      securityContext:
+        fsGroup: {{ include "eric-eo-evnfm-mb.fsGroup.coordinated" . }}
+      {{- end }}
+      volumes:
+        - name: var-log-data
+          emptyDir: {}
+        - name: rabbitmq-data
+          emptyDir: {}
+        - name: rabbitmq-cache
+          emptyDir: {}
+        - name: rabbitmq-base
+          emptyDir: {}
+      {{- if has "stream" .Values.log.outputs }}
+        {{- include "eric-log-shipper-sidecar.log-shipper-sidecar-volumes" . | indent 8 }}
+      {{- end }}
+        - name: config-volume
+          configMap:
+            name: {{ template "eric-eo-evnfm-mb.name" . }}-config
+            items:
+            - key: rabbitmq.conf
+              path: rabbitmq.conf
+        {{- if .Values.rabbitmq.advancedConfiguration}}
+            - key: advanced.config
+              path: advanced.config
+        {{- end }}
+        - name: config-erl
+          configMap:
+            name: {{ template "eric-eo-evnfm-mb.name" . }}-config
+            items:
+            - key: erl_inetrc
+              path: erl_inetrc
+            - key: enabled_plugins
+              path: enabled_plugins
+        {{- if .Values.rabbitmq.loadDefinition.enabled }}
+        - name: load-definition-volume
+          secret:
+            secretName: {{ .Values.rabbitmq.loadDefinition.secretName | quote }}
+        {{- end }}
+  {{- if not .Values.persistence.persistentVolumeClaim.enabled }}
+        - name: data
+          emptyDir: {}
+  {{- else if .Values.persistence.existingClaim }}
+        - name: data
+          persistentVolumeClaim:
+          {{- with .Values.persistence.existingClaim }}
+            claimName: {{ template "eric-eo-evnfm-mb.name" . }}
+          {{- end }}
+  {{- else }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app: {{ template "eric-eo-evnfm-mb.name" . }}
+          app.kubernetes.io/name: {{ template "eric-eo-evnfm-mb.name" . }}
+          app.kubernetes.io/instance: {{ .Release.Name }}
+          app.kubernetes.io/managed-by: Tiller
+      spec:
+        accessModes:
+          - {{ .Values.persistence.persistentVolumeClaim.accessMode | quote }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.persistentVolumeClaim.size | quote }}
+        {{ include "eric-eo-evnfm-mb.storageClass" . }}
+  {{- end }}

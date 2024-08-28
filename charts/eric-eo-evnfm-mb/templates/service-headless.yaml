@@ -1,0 +1,48 @@
+#
+# COPYRIGHT Ericsson 2022
+#
+#
+#
+# The copyright to the computer program(s) herein is the property of
+#
+# Ericsson Inc. The programs may be used and/or copied only with written
+#
+# permission from Ericsson Inc. or in accordance with the terms and
+#
+# conditions stipulated in the agreement/contract under which the
+#
+# program(s) have been supplied.
+#
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ template "eric-eo-evnfm-mb.name" . }}-headless
+  labels: {{- include "eric-eo-evnfm-mb.labels.extended-defaults" . | nindent 4 }}
+  annotations:
+  {{- include "eric-eo-evnfm-mb.annotations" .| nindent 4 }}
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+  - name: epmd
+    port: 4369
+    targetPort: epmd
+  - name: amqp
+    port: {{ .Values.service.port }}
+    targetPort: amqp
+  - name: dist
+    port: {{ .Values.service.distPort }}
+    targetPort: dist
+  - name: stats
+    port: {{ .Values.service.managerPort }}
+    targetPort: stats
+  selector:
+    app.kubernetes.io/name: {{ template "eric-eo-evnfm-mb.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app: {{ template "eric-eo-evnfm-mb.name" . }}
+  {{- if (eq (include "eric-eo-evnfm-mb.internalIPFamily" .) "IPv4") }}
+  ipFamilies: ["IPv4"]
+  {{- else if (eq (include "eric-eo-evnfm-mb.internalIPFamily" .) "IPv6") }}
+  ipFamilies: ["IPv6"]
+  {{- end }}

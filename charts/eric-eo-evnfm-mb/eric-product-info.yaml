@@ -1,0 +1,33 @@
+#
+# COPYRIGHT Ericsson 2022
+#
+#
+#
+# The copyright to the computer program(s) herein is the property of
+#
+# Ericsson Inc. The programs may be used and/or copied only with written
+#
+# permission from Ericsson Inc. or in accordance with the terms and
+#
+# conditions stipulated in the agreement/contract under which the
+#
+# program(s) have been supplied.
+#
+
+productName: "MessageBus RMQ"
+productNumber: "CXD 101 0745"
+images:
+  evnfmMB:
+    productName: "MessageBus RMQ"
+    productNumber: "CXU 101 0687"
+    registry: "armdocker.rnd.ericsson.se"
+    repoPath: "proj-am/snapshots"
+    name: "eric-eo-evnfm-mb"
+    tag: "VERSION"
+  volumePermissions:
+    productName: "Volume Permissions"
+    productNumber: "N/A"
+    registry: "armdocker.rnd.ericsson.se"
+    repoPath: "proj-ldc/common_base_os_release"
+    name: "sles"
+    tag: "5.1.0-23"

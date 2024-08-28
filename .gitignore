@@ -1,0 +1,56 @@
+# Compiled source #
+*.class
+*/bin/*
+
+# Eclipse files
+.project
+.classpath
+.settings
+.metadata
+
+# IntelliJ IDEA files
+.idea
+*.iws
+*.ipr
+*.iml
+*.patch
+
+# Test output files
+*/test-output/*
+/test-output/
+/test-output
+test-output/
+test-output/**/*
+*/test-output/**/*
+
+# Packages
+*.jar
+
+# Maven build files
+target
+reports
+
+# PMD
+.pmd
+
+# Merge files
+*.orig
+
+#tmp directories
+tmp/
+test-output/
+
+# ignore report files
+design-rule-check-report.html
+design-rule-check-report.xml
+design-rule-check-report-junit.xml
+
+#BOB Files
+.project_*
+*helm-target
+.bob.env
+.bob/
+.m2/
+
+#properties
+artifact.properties

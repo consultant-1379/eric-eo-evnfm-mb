@@ -1,0 +1,30 @@
+#
+# COPYRIGHT Ericsson 2022
+#
+#
+#
+# The copyright to the computer program(s) herein is the property of
+#
+# Ericsson Inc. The programs may be used and/or copied only with written
+#
+# permission from Ericsson Inc. or in accordance with the terms and
+#
+# conditions stipulated in the agreement/contract under which the
+#
+# program(s) have been supplied.
+#
+
+{{- if .Values.rbacEnabled }}
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ template "eric-eo-evnfm-mb.name" . }}-endpoint-reader
+  labels: {{- include "eric-eo-evnfm-mb.labels.extended-defaults" . | nindent 4 }}
+  {{- include "eric-eo-evnfm-mb.kubernetes-io-info" .| nindent 4 }}
+  annotations:
+  {{- include "eric-eo-evnfm-mb.annotations" .| nindent 4 }}
+rules:
+- apiGroups: [""]
+  resources: ["endpoints"]
+  verbs: ["get"]
+{{- end }}
